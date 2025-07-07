@@ -9,12 +9,15 @@ having count(1) > 1
 
 -- deduplicate game_details table
 
-with deduped as(
-	select *,
-	row_number() over(partition by game_id, team_id, player_id) as row_num
-	from game_details
-)
-select * from deduped where row_num = 1 
+Delete from game_details 
+where ctid in(
+		select ctid from (
+				select ctid,
+				row_number() over (partition by game_id, team_id, player_id order by ctid) as row_num
+			from game_details
+)sub
+ where row_num >1
+);
 
 
 -- to retriev data from devices
