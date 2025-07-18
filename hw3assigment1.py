@@ -20,6 +20,10 @@ medals_matches_players = spark.read.option("header", "true").option("inferSchema
 medals  = spark.read.option("header","true").option("inferSchema", "true").csv("/home/iceberg/data/medals.csv")
 maps = spark.read.option("header","true").option("inferSchema", "true").csv("/home/iceberg/data/maps.csv")
 
+
+#explicitly broadcast join medals and maps
+medal_maps = medals.join(broadcast(maps))
+
 #bucketing three csv files 
 
 match_details.select(col("match_id"),col("player_gamertag"),col("player_total_kills"),col("player_total_deaths")).write.bucketBy(16, "match_id").mode("overwrite").saveAsTable("bootcamp.match_details_buck") 
@@ -39,8 +43,9 @@ medals_matches_players = spark.table("bootcamp.medals_matches_players_buck")
 Aggregated_df = match_details\
                 .join(matches,"match_id")\
                 .join(medals_matches_players,"match_id")\
-                .join(broadcast(medals),"medal_id")\
-                .join(broadcast(maps))
+                .join(medal_maps,"medal_id")
+Aggregated_df.cache()
+Aggregated_df.show(1)
 
 #1 average most kills per game
 most_avg_kills_player = Aggregated_df.groupBy(col("player_gamertag"))\
