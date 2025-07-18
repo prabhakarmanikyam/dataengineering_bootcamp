@@ -40,8 +40,8 @@ medals_matches_players = spark.table("bootcamp.medals_matches_players_buck")
 Aggregated_df = match_details\
                 .join(matches,"match_id")\
                 .join(medals_matches_players,"match_id")\
-                .join(medals,"medal_id")\
-                .join(maps)
+                .join(broadcast(medals),"medal_id")\
+                .join(broadcast(maps))
 Aggregated_df.cache()
 Aggregated_df.show(1)
 
