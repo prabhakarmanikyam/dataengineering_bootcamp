@@ -58,16 +58,21 @@ most_played_playlist = Aggregated_df.groupBy("playlist_id") \
 
 most_played_playlist.show(truncate=False)
 
-#most killing spree medals
+#most_played_map
+
+most_played_map = Aggregated_df.groupBy("map_id")\
+                            .agg(count(*).alias("num_maps")\
+                            .orderBy(desc("num_maps")\
+                            .limit(1)
+most_played_map.show()
+
+#most killing spree medals map
 killing_spree_df = Aggregated_df.filter(col("name") == "Killing Spree")
 
-# Step 2: Group by map and count the number of Killing Spree medals
 most_killing_spree_map = killing_spree_df.groupBy("map_id") \
     .agg(sum("count").alias("killing_spree_total")) \
     .orderBy(desc("killing_spree_total")) \
     .limit(1)
-
-# Step 3: Display top map
 most_killing_spree_map.show(truncate=False)
 
 #sort with aggregated data
@@ -82,19 +87,18 @@ sorted_by_map.write.mode("overwrite").saveAsTable("bootcamp.events_sorted_map")
 
 
 
-%%sql
+file_stats_df = spark.sql("""
+    SELECT SUM(file_size_in_bytes) AS size, COUNT(1) AS num_files, 'sorted_by_playlists' AS source 
+    FROM demo.bootcamp.events_sorted_playlist.files
 
-SELECT SUM(file_size_in_bytes) as size, COUNT(1) as num_files, 'sorted_by_plits' 
-FROM demo.bootcamp.events_sorted_playlist.files
+    UNION ALL
 
-UNION ALL
-SELECT SUM(file_size_in_bytes) as size, COUNT(1) as num_files, 'sorted_by_map' 
-FROM demo.bootcamp.events_sorted_map.files
+    SELECT SUM(file_size_in_bytes) AS size, COUNT(1) AS num_files, 'sorted_by_map' AS source 
+    FROM demo.bootcamp.events_sorted_map.files
+""")
 
 
-%%sql
-SELECT SUM(file_size_in_bytes) as size, COUNT(1) as num_files FROM demo.bootcamp.events_sorted_playlist.files;
-SELECT SUM(file_size_in_bytes) as size, COUNT(1) as num_files FROM demo.bootcamp.events_sorted_map.files;
+file_stats_df.show(truncate=False)
                                                                                                                                              
                                                                                                                                              
 
