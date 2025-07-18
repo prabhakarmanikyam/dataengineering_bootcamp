@@ -61,8 +61,8 @@ most_played_playlist.show(truncate=False)
 #most_played_map
 
 most_played_map = Aggregated_df.groupBy("map_id")\
-                            .agg(count("*").alias("num_maps")\
-                            .orderBy(desc("num_maps")\
+                            .agg(count("*").alias("num_maps"))\
+                            .orderBy(desc("num_maps"))\
                             .limit(1)
 most_played_map.show()
 
