@@ -16,9 +16,9 @@ spark
 
 match_details = spark.read.option("header", "true").option("inferSchema", "true").csv("/home/iceberg/data/match_details.csv")
 matches = spark.read.option("header","true").option("inferSchema", "true").csv("/home/iceberg/data/matches.csv")
-maps = spark.read.option("header","true").option("inferSchema", "true").csv("/home/iceberg/data/maps.csv")
 medals_matches_players = spark.read.option("header", "true").option("inferSchema", "true").csv("/home/iceberg/data/medals_matches_players.csv")
 medals  = spark.read.option("header","true").option("inferSchema", "true").csv("/home/iceberg/data/medals.csv")
+maps = spark.read.option("header","true").option("inferSchema", "true").csv("/home/iceberg/data/maps.csv")
 
 #bucketing three csv files 
 
