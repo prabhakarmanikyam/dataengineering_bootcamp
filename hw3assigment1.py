@@ -36,7 +36,7 @@ match_details = spark.table("bootcamp.match_details_buck")
 matches = spark.table("bootcamp.matches_buck")
 medals_matches_players = spark.table("bootcamp.medals_matches_players_buck")
 
-#aggregating the data by joining all tables
+#aggregating the data by joining all tables, explicitly broadcasting medals and maps JOINs
 Aggregated_df = match_details\
                 .join(matches,"match_id")\
                 .join(medals_matches_players,"match_id")\
@@ -78,7 +78,7 @@ most_killing_spree_map = killing_spree_df.groupBy("map_id") \
     .limit(1)
 most_killing_spree_map.show(truncate=False)
 
-#sort with aggregated data
+#sortwithinpartitions with aggregated data
 sorted_by_playlist = Aggregated_df.repartition(8).sortWithinPartitions("playlist_id")
 
 sorted_by_playlist.write.mode("overwrite").saveAsTable("bootcamp.events_sorted_playlist")
@@ -91,6 +91,7 @@ sorted_by_map.write.mode("overwrite").saveAsTable("bootcamp.events_sorted_map")
 player_sorted = Aggregated_df.repartition(8).sortWithinPartitions("player_gamertag")
 player_sorted.write.mode("overwrite").saveAsTable("bootcamp.events_sorted_gamertag")
 
+#checking file sizes in pyspark
 %%sql
 
 SELECT SUM(file_size_in_bytes) as size, COUNT(1) as num_files, 'sorted_by_plits' 
