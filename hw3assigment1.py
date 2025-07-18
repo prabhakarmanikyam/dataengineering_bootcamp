@@ -61,7 +61,7 @@ most_played_playlist.show(truncate=False)
 #most_played_map
 
 most_played_map = Aggregated_df.groupBy("map_id")\
-                            .agg(count(*).alias("num_maps")\
+                            .agg(count("*").alias("num_maps")\
                             .orderBy(desc("num_maps")\
                             .limit(1)
 most_played_map.show()
@@ -85,20 +85,22 @@ sorted_by_map = Aggregated_df.repartition(8).sortWithinPartitions("map_id")
 
 sorted_by_map.write.mode("overwrite").saveAsTable("bootcamp.events_sorted_map")
 
+player_sorted = Aggregated_df.repartition(8).sortWithinPartitions("player_gamertag")
+player_sorted.write.mode("overwrite").saveAsTable("bootcamp.events_sorted_gamertag")
+
+%%sql
+
+SELECT SUM(file_size_in_bytes) as size, COUNT(1) as num_files, 'sorted_by_plits' 
+FROM demo.bootcamp.events_sorted_playlist.files
+
+UNION ALL
+SELECT SUM(file_size_in_bytes) as size, COUNT(1) as num_files, 'sorted_by_map' 
+FROM demo.bootcamp.events_sorted_map.files
 
 
-file_stats_df = spark.sql("""
-    SELECT SUM(file_size_in_bytes) AS size, COUNT(1) AS num_files, 'sorted_by_playlists' AS source 
-    FROM demo.bootcamp.events_sorted_playlist.files
-
-    UNION ALL
-
-    SELECT SUM(file_size_in_bytes) AS size, COUNT(1) AS num_files, 'sorted_by_map' AS source 
-    FROM demo.bootcamp.events_sorted_map.files
-""")
-
-
-file_stats_df.show(truncate=False)
+%%sql
+SELECT SUM(file_size_in_bytes) as size, COUNT(1) as num_files FROM demo.bootcamp.events_sorted_playlist.files;
+SELECT SUM(file_size_in_bytes) as size, COUNT(1) as num_files FROM demo.bootcamp.events_sorted_map.files;
                                                                                                                                              
                                                                                                                                              
 
