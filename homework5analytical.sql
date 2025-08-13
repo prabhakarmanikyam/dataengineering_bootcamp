@@ -2,59 +2,38 @@
 
 -- player status tracking query
 
-create table player_growth_accounting(
-player_name text,
-current_season INT,
-state_change text,
-was_active_last_season boolean,
-is_active_this_season boolean,
-previous_season int,
-primary key(player_name, current_season)
+-- players(player_name text, season int, is_active boolean)
+WITH states AS (
+  SELECT
+    player_name,
+    season AS current_season,
+    is_active AS is_active_this_season,
+    LAG(is_active)  OVER (PARTITION BY player_name ORDER BY season) AS was_active_last_season,
+    LAG(season)     OVER (PARTITION BY player_name ORDER BY season) AS previous_season
+  FROM players
 )
+SELECT
+  player_name,
+  current_season,
+  CASE
+    WHEN was_active_last_season IS NULL AND is_active_this_season = TRUE  THEN 'New'
+    WHEN was_active_last_season = TRUE  AND is_active_this_season = FALSE THEN 'Retired'
+    WHEN was_active_last_season = FALSE AND is_active_this_season = TRUE  THEN 'Returned From Retired'
+    WHEN was_active_last_season = TRUE  AND is_active_this_season = TRUE  THEN 'Continued Playing'
+    WHEN was_active_last_season = FALSE AND is_active_this_season = FALSE THEN 'Stayed Retired'
+  END AS state_change,
+  was_active_last_season,
+  is_active_this_season,
+  previous_season
+FROM states
+ORDER BY player_name, current_season;
 
 
-
-Insert into player_growth_accounting
-With previous_season as(
- 	select player_name,
-	 current_season as season,
-	 is_active
-	 FROM players
-	 where current_season = 1996
-),
- current_season as(
-		select player_name,
-	 current_season as season,
-	 is_active
-	 FROM players
-	 where current_season = 1997
- )
- select 
-    coalesce(c.player_name,p.player_name) as player_name,
-	coalesce(c.season,p.season+1) as current_season,
-	case 
-	 	 when p.player_name is null and c.player_name is not null then 'New'
-		  when p.is_active = 'true' and c.is_active = 'false' THEN 'Retired'
-		 when p.is_active = 'false' and c.is_active = 'true' THEN 'Returned From Retired'
-		 when p.is_active = 'true' and c.is_active = 'true' THEN 'Continued Playing'
-		 when p.is_active = 'false' and c.is_active = 'false' THEN 'Stayed Retired'
-		 Else 'Unknown'
-		 END as state_change,
-		 p.is_active as was_active_last_season,
-		 c.is_active as is_active_this_season,
-		 p.season as previous_season
-         FROM current_season c 
-		 FULL OUTER JOIN previous_season p
-		 ON c.player_name = p.player_name
-		 ORDER BY player_name
-
-
-select * from player_growth_accounting
 
 
 
 -- grouping sets query
-WITH combined AS (
+WITH base AS (
   SELECT
     gd.game_id,
     gd.team_id,
@@ -63,73 +42,134 @@ WITH combined AS (
     gd.player_name,
     gd.pts,
     g.season,
-    g.home_team_id,
-    g.visitor_team_id,
-    g.home_team_wins
-  FROM games g
-  JOIN game_details gd
-    ON g.game_id = gd.game_id 
+    g.home_team_id, g.visitor_team_id, g.home_team_wins
+  FROM game_details gd
+  JOIN games g USING (game_id)
 )
-SELECT
-  player_id,
-  team_id,
-  season,
-  SUM(pts) AS score,
-     COUNT(
-    CASE 
-        WHEN team_id = home_team_id AND home_team_wins = 1 THEN 1
-        WHEN team_id = visitor_team_id AND home_team_wins = 0 THEN 1
-    END
-) AS wins
+WITH agg AS (SELECT
+  -- label which rollup this row belongs to
+  CASE
+    WHEN GROUPING(player_id)=0 AND GROUPING(team_id)=0 AND GROUPING(season)=1 THEN 'player_team'
+    WHEN GROUPING(player_id)=0 AND GROUPING(season)=0 AND GROUPING(team_id)=1 THEN 'player_season'
+    WHEN GROUPING(player_id)=1 AND GROUPING(team_id)=0 AND GROUPING(season)=1 THEN 'team'
+  END AS level,
 
-FROM combined
-WHERE season is NOT NULL 
+  CASE WHEN GROUPING(player_id)=0 THEN player_id END        AS player_id,
+  CASE WHEN GROUPING(player_id)=0 THEN player_name END      AS player_name,
+  CASE WHEN GROUPING(team_id)=0  THEN team_id END           AS team_id,
+  CASE WHEN GROUPING(team_id)=0  THEN team_abbreviation END AS team_abbreviation,
+  CASE WHEN GROUPING(season)=0   THEN season END            AS season,
+
+  SUM(pts) AS total_pts,
+
+  /* wins only meaningful on team-only rows; count each game once per team */
+  CASE
+    WHEN GROUPING(player_id)=1 AND GROUPING(season)=1 AND GROUPING(team_id)=0
+    THEN COUNT(DISTINCT game_id) FILTER (
+           WHERE (team_id = home_team_id    AND home_team_wins = 1)
+              OR (team_id = visitor_team_id AND home_team_wins = 0)
+         )
+  END AS wins
+FROM base
 GROUP BY GROUPING SETS (
-   (player_id,team_id,season) -- player × team
+  (player_id, player_name, team_id, team_abbreviation),  -- player × team
+  (player_id, player_name, season),                      -- player × season
+  (team_id, team_abbreviation)                           -- team only
 );
+)
+--
+
+SELECT player_name, team_abbreviation, total_pts
+FROM agg
+WHERE level = 'player_team'
+ORDER BY total_pts DESC
+LIMIT 1;
+
+
+SELECT player_name, season, total_pts
+FROM agg
+WHERE level = 'player_season'
+ORDER BY total_pts DESC
+LIMIT 1;
+
+SELECT team_abbreviation, wins
+FROM agg
+WHERE level = 'team'
+ORDER BY wins DESC NULLS LAST
+LIMIT 1;
 
 -- window functions on game_details queries
-WITH rolling_90_forward AS (
-    SELECT
-        gd.team_id,
-        SUM(
-            CASE
-                WHEN (gd.team_id = g.home_team_id AND g.home_team_wins = 1)
-                  OR (gd.team_id = g.visitor_team_id AND g.home_team_wins = 0)
-                THEN 1 ELSE 0
-            END
-        ) OVER (
-            PARTITION BY gd.team_id
-            ORDER BY g.game_date_est, g.game_id
-            ROWS BETWEEN CURRENT ROW AND 89 FOLLOWING
-        ) AS wins_90_future
-    FROM game_details gd
-    JOIN games g USING (game_id)
+WITH team_games AS (
+  SELECT
+    g.game_id,
+    g.game_date_est,
+    t.team_id,
+    CASE
+      WHEN t.team_id = g.home_team_id    AND g.home_team_wins = 1 THEN 1
+      WHEN t.team_id = g.visitor_team_id AND g.home_team_wins = 0 THEN 1
+      ELSE 0
+    END AS win
+  FROM games g
+  CROSS JOIN LATERAL (VALUES (g.home_team_id), (g.visitor_team_id)) t(team_id)
 ),
-best_90_forward AS (
-    SELECT MAX(wins_90_future) AS max_wins_90_future
-    FROM rolling_90_forward
-),
-best_streak AS (
-    SELECT MAX(streak_len) AS longest_streak
-    FROM (
-        SELECT COUNT(*) AS streak_len
-        FROM (
-            SELECT g.game_date_est,
-                   (gd.pts > 10) AS over10,
-                   SUM(CASE WHEN gd.pts > 10 THEN 0 ELSE 1 END)
-                       OVER (ORDER BY g.game_date_est) AS grp
-            FROM game_details gd
-            JOIN games g USING (game_id)
-            WHERE gd.player_name = 'LeBron James'
-        ) t
-        WHERE over10
-        GROUP BY grp
-    ) s
+seq AS (
+  SELECT
+    team_id, game_id, game_date_est, win,
+    SUM(win) OVER (
+      PARTITION BY team_id
+      ORDER BY game_date_est, game_id
+      ROWS BETWEEN 89 PRECEDING AND CURRENT ROW
+    ) AS wins_last_90
+  FROM team_games
 )
-SELECT 'max_team_wins_in_90_games_forward' AS metric, max_wins_90_future::text AS value
-FROM best_90_forward
-UNION ALL
-SELECT 'lebron_over10_longest_streak', longest_streak::text
-FROM best_streak;
+SELECT team_id, wins_last_90
+FROM seq
+ORDER BY wins_last_90 DESC, game_date_est
+LIMIT 1;
+
+
+WITH lb AS (
+  SELECT g.game_date_est, (gd.pts > 10) AS over10
+  FROM game_details gd
+  JOIN games g USING (game_id)
+  WHERE gd.player_name = 'LeBron James'
+),
+marks AS (
+  SELECT
+    game_date_est, over10,
+    SUM(CASE WHEN over10 THEN 0 ELSE 1 END)
+      OVER (ORDER BY game_date_est) AS grp
+  FROM lb
+),
+streaks AS (
+  SELECT COUNT(*) AS streak_len
+  FROM marks
+  WHERE over10
+  GROUP BY grp
+)
+SELECT MAX(streak_len) AS longest_streak
+FROM streaks;
+
+
+WITH lb AS (
+  SELECT g.game_date_est, (gd.pts > 10) AS over10
+  FROM game_details gd
+  JOIN games g USING (game_id)
+  WHERE gd.player_name = 'LeBron James'
+),
+marks AS (
+  SELECT
+    game_date_est, over10,
+    SUM(CASE WHEN over10 THEN 0 ELSE 1 END)
+      OVER (ORDER BY game_date_est) AS grp
+  FROM lb
+),
+streaks AS (
+  SELECT COUNT(*) AS streak_len
+  FROM marks
+  WHERE over10
+  GROUP BY grp
+)
+SELECT MAX(streak_len) AS longest_streak
+FROM streaks;
 
