@@ -89,3 +89,47 @@ GROUP BY GROUPING SETS (
 );
 
 -- window functions on game_details queries
+WITH rolling_90_forward AS (
+    SELECT
+        gd.team_id,
+        SUM(
+            CASE
+                WHEN (gd.team_id = g.home_team_id AND g.home_team_wins = 1)
+                  OR (gd.team_id = g.visitor_team_id AND g.home_team_wins = 0)
+                THEN 1 ELSE 0
+            END
+        ) OVER (
+            PARTITION BY gd.team_id
+            ORDER BY g.game_date_est, g.game_id
+            ROWS BETWEEN CURRENT ROW AND 89 FOLLOWING
+        ) AS wins_90_future
+    FROM game_details gd
+    JOIN games g USING (game_id)
+),
+best_90_forward AS (
+    SELECT MAX(wins_90_future) AS max_wins_90_future
+    FROM rolling_90_forward
+),
+best_streak AS (
+    SELECT MAX(streak_len) AS longest_streak
+    FROM (
+        SELECT COUNT(*) AS streak_len
+        FROM (
+            SELECT g.game_date_est,
+                   (gd.pts > 10) AS over10,
+                   SUM(CASE WHEN gd.pts > 10 THEN 0 ELSE 1 END)
+                       OVER (ORDER BY g.game_date_est) AS grp
+            FROM game_details gd
+            JOIN games g USING (game_id)
+            WHERE gd.player_name = 'LeBron James'
+        ) t
+        WHERE over10
+        GROUP BY grp
+    ) s
+)
+SELECT 'max_team_wins_in_90_games_forward' AS metric, max_wins_90_future::text AS value
+FROM best_90_forward
+UNION ALL
+SELECT 'lebron_over10_longest_streak', longest_streak::text
+FROM best_streak;
+
